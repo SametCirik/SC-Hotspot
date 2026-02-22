@@ -1,0 +1,228 @@
+#!/bin/bash
+
+# --- RENK VE GECİKME AYARLARI ---
+CYAN='\e[1;36m'
+GREEN='\e[1;32m'
+RED='\e[1;31m'
+BLUE='\e[1;34m'
+YELLOW='\e[1;33m'
+NC='\e[0m' # No Color
+
+slow_print() {
+    sleep 0.04
+}
+
+# Arayüz tanımı
+INTERFACE="wlo1"
+
+# --- SC-DEBUG'DAN DÖNÜŞ VE ARGÜMAN YAKALAMA ---
+# Eğer bu betik sc-debug tarafından tekrar çağrılırsa şifreleri tekrar sormamak için
+PASSED_SSID="$1"
+PASSED_PASS="$2"
+CLEANUP_SSID="$3" # Kilitli ağı temizlemek için debug'dan gelen sinyal
+
+# --- TEMİZLİK TRAP'I (ÇOK ÖNEMLİ) ---
+# Hotspot Ctrl+C ile kapatıldığında, kilitli kalan BSSID/Kanal ayarlarını normale döndürür.
+cleanup() {
+    if [ -n "$CLEANUP_SSID" ]; then
+        echo -e "\n${YELLOW}[*] Kapanıyor... Ağ ayarları normale döndürülüyor (${CLEANUP_SSID})...${NC}"
+        nmcli con modify "$CLEANUP_SSID" 802-11-wireless.bssid "" > /dev/null 2>&1
+        nmcli con modify "$CLEANUP_SSID" 802-11-wireless.band "" > /dev/null 2>&1
+    fi
+    exit 0
+}
+trap cleanup SIGINT SIGTERM
+
+clear
+
+# 1. ASCII ART SECTION
+echo -e "${CYAN}"
+cat << "EOF"
+                                                                                                         
+                                                     
+                                         @@@@%*+===*%%@@@                                             
+                                       @@=              .+@@                                          
+        @@@%#=:.   :-*%@@@           @@=                   :@@                                        
+     @@#:                .=@@       @@:               .@%.   +@                                       
+   @%      .-#@@@@@@%+:.     =@@    @=                %#      +@                                      
+ @%     +@@@@%*=--==*@@@@%:    -@@ @@                          %@                                     
+ @   .@@@#.             =@@@+   *@ @#                          =@                                     
+ @@%@@@-     :+#%%%*=     .*@@%@@  @*   .-.       .*%%*        :@                                     
+    @@    =@@@@%#*#@@@@%.   :@     @+  %@@@@.    +@@@@@@=      :@                                     
+     @-.*@@*.         =@@%:.#@     @* :@:.-@%   .@@+:+=@@-      @                                     
+         %.   .=+*=.    =@         @* :#  @=@   -@*   % @%      %@                                    
+        @=  == =%@@@@+   @         @#  @=  *%%%#*@%    *@%      #@                                    
+         @@@:=#    :@#@@@          @%  :#*%*%%%%%%%%*.  :       =@                                    
+          @#.%      +=.@@          @@  *%%%%%%%%%%%%%%%%%:      :@                                    
+          @+=#-     %: =@          @@ :%%%%%%%%%%%%%%%* %*       %@                                   
+          @**:=%**%*.  :@           @.  .%%%%%%%%#=-=*%%%.  ==   .@@                                  
+          @@.@         *@           @:         .+%%%#: %@.   %@@  .@                                  
+           @@.        *@           @%  @= :#%%%%*- :#@@@@#    .:   .@@                                
+             @*       .@@         @*  =@@*       *@@@@@@@@@.         @@                               
+              @#        =@@@    @@=  =@@@@@:  .#@@@@@@@@@@@@:         @@                              
+               @:          .#@@*    :@@@@@@@@@@@@@@@@@@@@@@@%          %@                             
+               @@=*                 #@@@@@@@@@@@@@@@@@@@@@@@%-          =@@                           
+                @:@.               :*@@@@@@@@**@@@@@@@@@@@%***    %-      @@                          
+                @@.@.              :***#%@@@@*%@@@@@@@%%#*****=    +@      #@                         
+                 @%+@              +%@@@@@@@@#@@@@@@@@@@@@@@%**=    -@.     *@                        
+                  @%:@:          -@@@@@@@@@@@@@@@@@@@@@@@@@@@@@*=    =@.     *@                       
+                    @==%:       -@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@=    *@      @@                      
+                     @@@*+*@-  :@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@     %=     .@                      
+                          @%   @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@=    +%      *@                     
+                          @-  @@@@@@@@@@@@@@*@@@@@@@@@@@@@@@@@@@@@#    .@.     .@                     
+                         @@  -@@@@@@@@@@@@@@*@@@@@@@@@@@@@@@@@@@@@%     @       @@                    
+                         @%  %@@@@@@@@@@@@@@*@@@@@@@@@@@@@@@@@@@@@%    -*       -@                    
+                         @%  @@@@@@@@@@@@@@@*@@@@@@@@@@@@@@@@@@@@@%    %:        @                    
+                      @@@@@. @@@@@@@@@@@@@@@*@@@@@@@@@@@@@@@@@@@@@@%###%@*.      @@                   
+                    @@:   :#:@@@@@@@@@@@@@@@*@@@@@@@@@@@@@@@@@@@@@@              @                    
+                    @%%%%%%:=@@@@@@@@@@@@@@@*@@@@@@@@@@@@@@@@@@%=:.            .@@                    
+                   @*+%%%%%%# %@@@@@@@@@@@@@#%@@@@@@@@@@@@@@@@% *%#           =@@@                    
+                  @@.*%%%%%%%%:+@@@@@@@@@@@@@*@@@@@@@@@@@@@@@@*:%%%#        =%%%%=@                   
+           @@@@@@%: =%%%%%%%%%%*:@@@@@@@@@@@@%@@@@@@@@@@@@@@@@#:%%%%%*.  -#%%%%%+.@                   
+          @%:%%%##%%%%%%%%%%%%%%#.@@@@@@@@@@@@@@@@@@@@@@@@@@@@#:%%%%%%%%%%%%%%%%% #@                  
+          @+:%%%%%%%%%%%%%%%%%%%%%:%@@@@@@@@@@@@@@@@@@@@@@@@@@# %%%%%%%%%%%%%%%%%: :@@                
+          @% -%%%%%%%%%%%%%%%%%%%%%:%@@@@@@@@@@@@@@@@@@@@@@@@@* +%%%%%%%%%%%%%%%%%*:..#@@             
+           @- *%%%%%%%%%%%%%%%%%%%%%=#@@@@@@@@@@@@@@@@@@@@@= +* :%%%%%%%%%%%%%%%%%%%%%%-+@            
+           @- *%%%%%%%%%%%%%%%%%%%%%%==@@@@@@@@@@@@@@@@@@%.  ** :%%%%%%%%%%%%%%%%%%%%%%=:@            
+          @% :%%%%%%%%%%%%%%%%%%%%%%%%=:@+.%@@@@@@@@@@%-     @= +%%%%%%%%%%%%%%%%%%%%+:%@             
+          @-=%%%%%%%%%%%%%%%%%%%%%%%%%# .@#                 +@. #%%%%%%%%%%%%%%#*- :*@@               
+          @-.-*%%%%%%%%%%%%%%%%%%%%%%%%  -@                 #% .%%%%%%%%%%%%*:  *@@@                  
+           @@@*-:  .-*#%%%%%%%%%%%%%%%+  =                      +%%%%%%%%%=  =@@                      
+                @@@@@%#=. .:=*%%%%%%%=  .#@@@@@@@@@@@@@@@@@@@*   :%%%%%%:  #@@                        
+                        @@@%=.        +@@                    @%.         +@@                          
+                             @@@%*=+%@@                        @@%#***%@@@                            
+                                  
+
+                                       /$$$$$$   /$$$$$$                                             
+                                      /$$__  $$ /$$__  $$                                            
+                                     | $$  \__/| $$  \__/                                            
+                                     |  $$$$$$ | $$                                                  
+                                      \____  $$| $$                                                  
+                                      /$$  \ $$| $$    $$                                            
+                                     |  $$$$$$/|  $$$$$$/                                            
+                                      \______/  \______/                                             
+                                                                                                     
+                                                                                                     
+                                                                                                     
+              /$$   /$$             /$$                                    /$$                       
+              | $$  | $$            | $$                                   | $$                      
+              | $$  | $$  /$$$$$$  /$$$$$$   /$$$$$$$  /$$$$$$   /$$$$$$  /$$$$$$                    
+              | $$$$$$$$ /$$__  $$|_  $$_/  /$$_____/ /$$__  $$ /$$__  $$|_  $$_/                    
+              | $$__  $$| $$  \ $$  | $$   |  $$$$$$ | $$  \ $$| $$  \ $$  | $$                      
+              | $$  | $$| $$  | $$  | $$ /$$\____  $$| $$  | $$| $$  | $$  | $$ /$$                  
+              | $$  | $$|  $$$$$$/  |  $$$$//$$$$$$$/| $$$$$$$/|  $$$$$$/  |  $$$$/                  
+              |__/  |__/ \______/    \___/ |_______/ | $$____/  \______/    \___/                    
+                                                     | $$                                            
+                                                     | $$                                            
+                                                     |__/                                                
+                                                                                                  
+EOF
+echo -e "${NC}"
+
+# 2. Başlık
+echo -e "${GREEN}                                        SC HOTSPOT v1.0${NC}\n"
+
+# 3. FETCH SYSTEM INFO DYNAMICALLY
+SYS_OS=$(grep '^NAME=' /etc/os-release | cut -d '=' -f 2 | tr -d '"')
+SYS_HOST=$HOSTNAME
+SYS_USER=$(whoami)
+SYS_DATE=$(date +"%d.%m.%Y - %H:%M")
+
+# 4. SİSTEM BİLGİLERİ EKRANI (Yavaş Yazdırma ile)
+# Eğer debug'dan dönmüyorsak efekti oynat
+if [ -z "$PASSED_SSID" ]; then
+    slow_print
+    printf "                                [ OS        ] :: %s\n" "$SYS_OS"
+    slow_print
+    printf "                                [ Hostname  ] :: %s\n" "$SYS_HOST"
+    slow_print
+    printf "                                [ User      ] :: %s\n" "$SYS_USER"
+    slow_print
+    printf "                                [ Date/Time ] :: %s\n" "$SYS_DATE"
+    slow_print
+    printf "                                [ Developer ] :: Samet CIRIK\n"
+    slow_print
+    echo ""
+fi
+
+# 5. KULLANICI GİRİŞLERİ VEYA AKTARILAN BİLGİLER
+if [ -z "$PASSED_SSID" ]; then
+    echo "==============================================================="
+    read -p "Hotspot Name (SSID) [Default: 'SC Hotspot']: " input_ssid
+    SSID="${input_ssid:-SC Hotspot}"
+
+    read -p "Hotspot Password (Min 8 chars) [Default: '12345678']: " input_pass
+    PASSWORD="${input_pass:-12345678}"
+    echo "==============================================================="
+    echo ""
+else
+    SSID="$PASSED_SSID"
+    PASSWORD="$PASSED_PASS"
+    echo -e "${GREEN}[*] Ağ kurtarıldı. Önceki bilgiler kullanılıyor...${NC}"
+    echo -e "${CYAN}[*] Hedef SSID: $SSID ${NC}\n"
+fi
+
+# Password length validation
+if [ ${#PASSWORD} -lt 8 ]; then
+    echo -e "${RED}Error:${NC} Password must be at least 8 characters! Operation aborted."
+    exit 1
+fi
+
+# --- STABİLİTE İYİLEŞTİRMELERİ (Genel) ---
+echo -e "${BLUE}[*] Optimizasyonlar uygulanıyor...${NC}"
+
+# Güç tasarrufunu kapat
+sudo iw dev $INTERFACE set power_save off
+sleep 2  
+# -------------------------------------
+
+# 6. ACTIVE CONNECTION & FREQUENCY CHECK
+CURRENT_SSID=$(iw dev $INTERFACE link | grep '\bSSID:' | sed 's/^.*SSID: //')
+FREQ=$(iw dev $INTERFACE link | grep freq | awk '{print $2}' | cut -d. -f1)
+
+if [ -z "$FREQ" ] || [ -z "$CURRENT_SSID" ]; then
+    echo -e "${RED}Error:${NC} $INTERFACE ağ bilgileri okunamadı! (Ağa bağlı olduğunuzdan emin olun)"
+    exit 1
+fi
+
+# 7. FREQUENCY TO CHANNEL CONVERSION ALGORITHM
+if [ "$FREQ" -lt 3000 ]; then
+    CH=$(( (FREQ - 2407) / 5 ))
+    BAND_PARAM=""
+else
+    CH=$(( (FREQ - 5000) / 5 ))
+    BAND_PARAM="--freq-band 5"
+fi
+
+echo -e "${BLUE}[*] Network Analysis Complete...${NC}"
+echo -e "[*] Active Network   : $CURRENT_SSID"
+echo -e "[*] Active Frequency : $FREQ MHz"
+echo -e "[*] Target Channel   : $CH"
+echo -e "${GREEN}[*] Starting Hotspot... ($SSID)${NC}"
+echo "==============================================================="
+
+# --- HOTSPOT BAŞLATMA ---
+run_hotspot() {
+    sudo iw reg set BZ
+    sudo create_ap -c $CH $INTERFACE $INTERFACE "$SSID" "$PASSWORD" $BAND_PARAM
+}
+
+run_hotspot
+
+# EĞER HOTSPOT PATLARSA SC-DEBUG ÇAĞIRILACAK
+if [ $? -ne 0 ]; then
+    echo ""
+    echo -e "${RED}[!] Hotspot kısıtlı bir kanala (DFS) takıldı.${NC}"
+    echo -e "${YELLOW}[*] Hata Ayıklama (Debug) moduna geçiliyor...${NC}"
+    sleep 2
+    
+    # sc-debug betiğini çağır
+    DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
+    if [ -f "$DIR/sc-debug" ]; then
+        # Mevcut işlemi sonlandırıp debug'ı başlat
+        exec "$DIR/sc-debug" "$INTERFACE" "$SSID" "$PASSWORD"
+    else
+        echo -e "${RED}HATA: 'sc-debug' betiği bulunamadı! Lütfen aynı klasörde olduğundan emin olun.${NC}"
+        exit 1
+    fi
+fi
